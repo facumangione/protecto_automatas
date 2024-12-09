@@ -1,6 +1,6 @@
 # Seguimiento de Conexiones en Días Feriados y Fines de Semana 📅
 
-Este proyecto permite analizar las conexiones de usuarios en una base de datos extensa, identificando específicamente las conexiones realizadas durante días feriados y fines de semana en Argentina. Además, ofrece la posibilidad de filtrar los datos por un rango de fechas definido por el usuario y exportar los resultados a un archivo Excel.
+Este proyecto permite analizar las conexiones de usuarios en una base de datos extensa, identificando específicamente las conexiones realizadas durante días feriados y fines de semana en Argentina. Además, ofrece la posibilidad de filtrar los datos por un rango de fechas definido por el usuario y exportar los resultados a un archivo Excel. Tarda aproximadamente 3 minutos en ejecutarse.
 
 ---
 
