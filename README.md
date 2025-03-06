@@ -42,7 +42,16 @@ Instala las dependencias necesarias ejecutando:
 ```bash
 pip install -r requirements.txt
 ```
-## Uso 
+## Si no funciona ejecutar:
+```bash
+pip install --no-cache-dir pandas==2.0.3
+```
+```bash
+pip install --no-cache-dir openpyxl==3.1.2
+pip install --no-cache-dir tk
+```
+
+### 4. Uso 
 Ejecuta el programa:
 ```bash
 python main.py
