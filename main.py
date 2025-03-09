@@ -1,133 +1,109 @@
-import polars as pl
-import tkinter as tk
-from tkinter import messagebox
 import pandas as pd
 import re
-import os
-import threading
-from datetime import datetime
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
 
-def cargar_datos(archivo):
-    try:
-        # Usar pandas para leer el Excel
-        df_pd = pd.read_excel(archivo)
-
-        # Verificar las columnas y sus tipos en pandas
-        print(f"Columnas y tipos de datos en pandas DataFrame:\n{df_pd.dtypes}")
-
-        # Convertir las columnas de fecha a formato datetime (si existen)
-        if "Inicio_de_Conexión_Dia" in df_pd.columns:
-            df_pd["Inicio_de_Conexión_Dia"] = pd.to_datetime(df_pd["Inicio_de_Conexión_Dia"], errors='coerce')
-
-        if "FIN_de_Conexión_Dia" in df_pd.columns:
-            df_pd["FIN_de_Conexión_Dia"] = pd.to_datetime(df_pd["FIN_de_Conexión_Dia"], errors='coerce')
-
-        # Convertir las columnas numéricas a tipo adecuado (int o float)
-        num_columns = ["Session_Time", "Input_Octects", "Output_Octects"]
-        for col in num_columns:
-            if col in df_pd.columns:
-                df_pd[col] = pd.to_numeric(df_pd[col], errors='coerce')
-
-        # Eliminar columnas no necesarias, como 'Unnamed' o cualquier otra columna vacía o irrelevante
-        df_pd = df_pd.dropna(axis=1, how='all')  # Eliminar columnas completamente vacías
-        df_pd = df_pd.loc[:, ~df_pd.columns.str.contains('^Unnamed')]  # Eliminar columnas con nombres 'Unnamed'
-
-        # Convertir todas las columnas de texto a string para compatibilidad con Polars
-        for col in df_pd.select_dtypes(include='object').columns:
-            df_pd[col] = df_pd[col].astype(str)
-
-        # Verifica nuevamente las columnas y sus tipos después de las conversiones
-        print(f"Columnas y tipos después de la conversión:\n{df_pd.dtypes}")
-
-        # Convertir el DataFrame de pandas a Polars
-        df = pl.from_pandas(df_pd)
-
-        print("Datos cargados correctamente.")
-        return df
-    except Exception as e:
-        print(f"Error al cargar el archivo: {e}")
-        return None
-    
+# Función para validar el formato de fecha con expresiones regulares
 def validar_fecha(fecha):
-    return bool(re.match(r"^\d{4}-\d{2}-\d{2}$", fecha))
+    patron = r"^\d{4}-\d{2}-\d{2}$"
+    return re.match(patron, fecha)
 
-def convertir_fecha(fecha_str):
-    try:
-        return datetime.strptime(fecha_str, "%Y-%m-%d").date()
-    except ValueError:
-        return None
+# Función para procesar el archivo y mostrar la vista previa
+def procesar_archivo():
+    global df_filtrado  # Para usarlo después en la exportación
 
-def filtrar_por_fecha(df, fecha_inicio, fecha_fin):
-    if not (validar_fecha(fecha_inicio) and validar_fecha(fecha_fin)):
+    # Pedir archivo al usuario
+    archivo_excel = filedialog.askopenfilename(title="Selecciona el archivo Excel", filetypes=[("Archivos Excel", "*.xlsx")])
+    
+    if not archivo_excel:
+        messagebox.showerror("Error", "No seleccionaste ningún archivo.")
+        return
+    
+    df = pd.read_excel(archivo_excel)
+
+    # Convertir las fechas a datetime
+    df['Inicio_de_Conexión_Dia'] = pd.to_datetime(df['Inicio_de_Conexión_Dia'], errors='coerce')
+
+    # Definir feriados de 2019
+    feriados_2019 = [
+        "2019-01-01", "2019-03-04", "2019-03-05", "2019-03-24",
+        "2019-04-02", "2019-04-19", "2019-05-01", "2019-05-25",
+        "2019-06-17", "2019-06-20", "2019-07-09", "2019-08-17",
+        "2019-10-12", "2019-11-20", "2019-12-08", "2019-12-25"
+    ]
+    feriados_2019 = pd.to_datetime(feriados_2019)
+
+    # Obtener fechas ingresadas
+    fecha_inicio = entrada_inicio.get()
+    fecha_fin = entrada_fin.get()
+
+    # Validar formato de fecha
+    if not validar_fecha(fecha_inicio) or not validar_fecha(fecha_fin):
         messagebox.showerror("Error", "Formato de fecha incorrecto. Usa YYYY-MM-DD.")
-        return df
-    
-    fecha_inicio = convertir_fecha(fecha_inicio)
-    fecha_fin = convertir_fecha(fecha_fin)
-    return df.filter((pl.col("Inicio_de_Conexión_Dia") >= fecha_inicio) & (pl.col("Inicio_de_Conexión_Dia") <= fecha_fin))
+        return
 
-def detectar_feriados_y_no_laborables(df, feriados):
-    feriados_pl = [convertir_fecha(f) for f in feriados if convertir_fecha(f)]
-    df = df.with_columns(
-        pl.col("Inicio_de_Conexión_Dia").is_in(feriados_pl).alias("Es_feriado"),
-        pl.col("Inicio_de_Conexión_Dia").map_elements(lambda d: d.weekday() >= 5 if d is not None else False).alias("Es_no_laborable")
-    )
-    return df
+    fecha_inicio = pd.to_datetime(fecha_inicio)
+    fecha_fin = pd.to_datetime(fecha_fin)
 
-def exportar_excel(df_final):
-    def guardar():
-        try:
-            carpeta_salida = os.path.dirname(os.path.abspath(__file__))
-            archivo_salida = os.path.join(carpeta_salida, "conexiones_feriados.xlsx")
-            df_final.to_pandas().to_excel(archivo_salida, index=False)
-            messagebox.showinfo("Éxito", f"Datos exportados correctamente en: {archivo_salida}")
-        except Exception as e:
-            messagebox.showerror("Error", f"No se pudo exportar el archivo: {e}")
-    
-    hilo = threading.Thread(target=guardar)
-    hilo.start()
+    # Filtrar datos
+    df_filtrado = df[
+        ((df['Inicio_de_Conexión_Dia'].dt.dayofweek >= 5) |  # Sábado (5) y domingo (6)
+         (df['Inicio_de_Conexión_Dia'].isin(feriados_2019))) &
+        (df['Inicio_de_Conexión_Dia'].between(fecha_inicio, fecha_fin))
+    ]
 
-def crear_interfaz(df):
-    root = tk.Tk()
-    root.title("Analizador de Conexiones WiFi")
-    root.geometry("500x400")
-    
-    tk.Label(root, text="Fecha inicio (YYYY-MM-DD):").pack(pady=5)
-    fecha_inicio_entry = tk.Entry(root)
-    fecha_inicio_entry.pack()
-    
-    tk.Label(root, text="Fecha fin (YYYY-MM-DD):").pack(pady=5)
-    fecha_fin_entry = tk.Entry(root)
-    fecha_fin_entry.pack()
-    
-    resultado_lista = tk.Listbox(root, width=80, height=10)
-    resultado_lista.pack(pady=10)
-    
-    def procesar():
-        fecha_inicio = fecha_inicio_entry.get()
-        fecha_fin = fecha_fin_entry.get()
-        
-        df_filtrado = filtrar_por_fecha(df, fecha_inicio, fecha_fin)
-        df_final = detectar_feriados_y_no_laborables(df_filtrado, feriados)
-        
-        resultado_lista.delete(0, tk.END)
-        for row in df_final.iter_rows(named=True):
-            resultado_lista.insert(tk.END, f"{row['Inicio_de_Conexión_Dia']} - Feriado: {row['Es_feriado']} - No Laborable: {row['Es_no_laborable']}")
-        
-        messagebox.showinfo("Procesado", f"Se encontraron {len(df_final)} registros.")
-        
-        
-        exportar_excel(df_final)
-    
-    tk.Button(root, text="Analizar", command=procesar).pack(pady=5)
-    tk.Button(root, text="Exportar a Excel", command=lambda: exportar_excel(df)).pack(pady=5)
-    root.mainloop()
+    # Mostrar vista previa
+    actualizar_vista_previa(df_filtrado)
 
-archivo = r"C:\Users\Facundo\Desktop\Facundo Tareas\protecto_automatas\protecto_automatas\bd_automatas.xlsx"
+# Función para mostrar la tabla con los datos filtrados
+def actualizar_vista_previa(df):
+    # Limpiar tabla anterior
+    for fila in tabla.get_children():
+        tabla.delete(fila)
 
-feriados = ["2024-01-01", "2024-05-01", "2024-12-25"]
+    # Agregar filas a la tabla
+    for _, fila in df.iterrows():
+        valores = [fila[col] for col in df.columns]
+        tabla.insert("", "end", values=valores)
 
-df = cargar_datos(archivo)
-if df is not None:
-    crear_interfaz(df)
+    # Hacer visible el botón de exportar
+    boton_exportar["state"] = "normal"
 
+# Función para exportar los datos filtrados a Excel
+def exportar_a_excel():
+    df_filtrado.to_excel("conexiones_filtradas.xlsx", index=False)
+    messagebox.showinfo("Éxito", "Archivo generado: conexiones_filtradas.xlsx")
+
+# Crear la interfaz gráfica
+ventana = tk.Tk()
+ventana.title("Análisis de Conexiones WiFi")
+
+tk.Label(ventana, text="Fecha de inicio (YYYY-MM-DD):").pack()
+entrada_inicio = tk.Entry(ventana)
+entrada_inicio.pack()
+
+tk.Label(ventana, text="Fecha de fin (YYYY-MM-DD):").pack()
+entrada_fin = tk.Entry(ventana)
+entrada_fin.pack()
+
+boton_procesar = tk.Button(ventana, text="Seleccionar Archivo y Procesar", command=procesar_archivo)
+boton_procesar.pack()
+
+# Tabla de vista previa
+columnas = ["ID", "ID_Sesion", "ID_Conexión_unico", "Usuario", "IP_NAS_AP", "Tipo__conexión", 
+            "Inicio_de_Conexión_Dia", "Inicio_de_Conexión_Hora", "FIN_de_Conexión_Dia", 
+            "FIN_de_Conexión_Hora", "Session_Time", "Input_Octects", "Output_Octects", 
+            "MAC_AP", "MAC_Cliente", "Razon_de_Terminación_de_Sesión"]
+
+tabla = ttk.Treeview(ventana, columns=columnas, show="headings", height=10)
+for col in columnas:
+    tabla.heading(col, text=col)
+    tabla.column(col, width=100)
+
+tabla.pack()
+
+# Botón de exportación (inicialmente deshabilitado)
+boton_exportar = tk.Button(ventana, text="Exportar a Excel", command=exportar_a_excel, state="disabled")
+boton_exportar.pack()
+
+ventana.mainloop()
